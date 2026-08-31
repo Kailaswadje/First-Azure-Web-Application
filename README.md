@@ -67,10 +67,10 @@ Grounded Prompt  ──►  Azure OpenAI (gpt-4.1-mini)
 ### 1️⃣ Configuration — Endpoints Fixed, Keys from the Environment
 ```python
 AZURE_OPENAI_ENDPOINT = "https://ssopenai.services.ai.azure.com/"
-AZURE_OPENAI_KEY = os.environ.get("AZURE_OPENAI_KEY")
+AZURE_OPENAI_KEY = "8srCs7CTvz8FkvbeKVHVSuuT3WiklAJ0hRrt84iMOeEYxPeMAq5HJQQJ99CHAC1i4TkXJ3w3AAAAACOGnAhv"
 
 SEARCH_ENDPOINT = "https://kssragservice.search.windows.net"
-SEARCH_KEY = os.environ.get("AZURE_SEARCH_KEY")
+SEARCH_KEY = "lzxANC7gwIHAs5TOY7MYKaEiu2iTCNjxoXSkmZ8BCFAzSeAaduvr"
 
 INDEX_NAME = "sstextembedding"
 ```
