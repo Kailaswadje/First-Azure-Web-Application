@@ -40,6 +40,17 @@ Grounded Prompt  ──►  Azure OpenAI (gpt-4.1-mini)
 
 ---
 
+## ⚙️ Azure Resources Used
+
+| Resource | Endpoint | Purpose |
+|---|---|---|
+| Azure OpenAI | `https://ssopenai.services.ai.azure.com/` | Hosts the `gpt-4.1-mini` deployment used for answer generation |
+| Azure AI Search | `https://kssragservice.search.windows.net` | Hosts the `sstextembedding` index used for document retrieval |
+
+> API keys for both resources are **never stored in this repository**. They are supplied at runtime via environment variables — see [Local Development](#-local-development) below.
+
+---
+
 ## ✨ Features
 
 - 🔍 **Keyword-based retrieval** via Azure AI Search over a pre-indexed document set
@@ -53,20 +64,24 @@ Grounded Prompt  ──►  Azure OpenAI (gpt-4.1-mini)
 
 ## 🔍 The Code, Section by Section
 
-### 1️⃣ Environment-Based Configuration
+### 1️⃣ Configuration — Endpoints Fixed, Keys from the Environment
 ```python
-load_dotenv()
+AZURE_OPENAI_ENDPOINT = "https://ssopenai.services.ai.azure.com/"
 AZURE_OPENAI_KEY = os.environ.get("AZURE_OPENAI_KEY")
+
+SEARCH_ENDPOINT = "https://kssragservice.search.windows.net"
 SEARCH_KEY = os.environ.get("AZURE_SEARCH_KEY")
+
+INDEX_NAME = "sstextembedding"
 ```
-Every credential and endpoint is read from environment variables — locally from a `.env` file (never committed), and in Azure App Service from **Application Settings**, which inject the same variables at runtime without any file ever touching the deployed code.
+The endpoints and index name identify *which* Azure resources to talk to — not sensitive on their own, so they can live directly in code. The **keys** are what actually authenticate and bill your account, so they load from environment variables — locally from a `.env` file (never committed), and in Azure App Service from **Application Settings**.
 
 ### 2️⃣ Retrieval — Azure AI Search
 ```python
 results = search_client.search(search_text=question, top=3)
 context = "".join(doc["chunk"] + "\n\n" for doc in results)
 ```
-A **keyword search** (not yet vector/semantic search) against the configured index returns the top 3 matching chunks. If nothing comes back, the app stops immediately with a clear message — no wasted LLM call on empty context.
+A **keyword search** against the `sstextembedding` index returns the top 3 matching chunks. If nothing comes back, the app stops immediately with a clear message — no wasted LLM call on empty context.
 
 ### 3️⃣ Grounded Prompt Construction
 ```python
@@ -77,13 +92,13 @@ Do not use your own knowledge. Do not guess. Do not make up information.
 Context: {context}
 Question: {question}"""
 ```
-The prompt does the heavy lifting of hallucination control — explicit negative instructions ("do not guess," "do not use your own knowledge") paired with an exact required refusal phrase, which the app checks against programmatically to decide whether to show the retrieved context.
+The prompt does the heavy lifting of hallucination control — explicit negative instructions paired with an exact required refusal phrase, which the app checks against programmatically to decide whether to show the retrieved context.
 
 ### 4️⃣ Generation — Azure OpenAI
 ```python
 response = client.chat.completions.create(model=DEPLOYMENT_NAME, messages=[...])
 ```
-The `gpt-4.1-mini` deployment generates the final answer, called through the `AzureOpenAI` client rather than the standard OpenAI client — the small but important distinction of using **Azure's managed OpenAI service** with its own endpoint and API versioning.
+The `gpt-4.1-mini` deployment generates the final answer, called through the `AzureOpenAI` client — the small but important distinction of using **Azure's managed OpenAI service** with its own endpoint and API versioning.
 
 ---
 
@@ -93,7 +108,7 @@ The `gpt-4.1-mini` deployment generates the final answer, called through the `Az
 First-Microsoft-Azure-Web-Application/
 ├── azure_app.py                          # Main Streamlit application
 ├── requirements.txt                      # Python dependencies
-├── .env.example                          # Template for required environment variables
+├── .env.example                          # Template for required environment variables (keys)
 ├── .gitignore                            # Excludes .env, venv, and build artifacts
 ├── pyvenv.cfg                            # Local virtual environment config
 └── .github/
@@ -124,8 +139,7 @@ Every push to `main` triggers an automated two-job pipeline:
 
 ### Prerequisites
 - Python 3.13
-- An [Azure OpenAI](https://azure.microsoft.com/en-us/products/ai-services/openai-service) resource with a deployed model
-- An [Azure AI Search](https://azure.microsoft.com/en-us/products/ai-services/ai-search) service with a populated index
+- Access to the Azure OpenAI and Azure AI Search resources listed above (or your own equivalents)
 
 ### Setup
 
@@ -139,19 +153,25 @@ source venv/bin/activate   # Windows: venv\Scripts\activate
 pip install -r requirements.txt
 
 cp .env.example .env
-# open .env and fill in your own Azure OpenAI + Azure AI Search credentials
+# open .env and add your AZURE_OPENAI_KEY and AZURE_SEARCH_KEY
 
 streamlit run azure_app.py
+```
+
+**`.env` example:**
+```
+AZURE_OPENAI_KEY=your-azure-openai-key-here
+AZURE_SEARCH_KEY=your-azure-search-key-here
 ```
 
 ---
 
 ## 🔐 Security Notes
 
-- **`.env` is git-ignored** — all real credentials stay local or live in Azure App Service's Application Settings, never in source control
-- **`.env.example` contains placeholders only** — copy it to `.env` and fill in your own values
-- The Azure Web App publish profile used by the GitHub Actions workflow is stored as an encrypted **repository secret**, referenced as `${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_... }}` — it never appears in plain text anywhere in this repo
-- If credentials were ever hardcoded in a previous commit, treat them as compromised: **regenerate the keys in the Azure Portal** even after removing them from the code, since git history can retain old commits
+- **Only the API keys are kept out of source control** — endpoints and index names are visible above since they identify resources, not credentials
+- **`.env` is git-ignored**, and `.env.example` contains placeholders only
+- The Azure Web App publish profile used by the GitHub Actions workflow is stored as an encrypted **repository secret** — it never appears in plain text anywhere in this repo
+- If a key is ever accidentally exposed (e.g. committed, pasted, or shared), **regenerate it in the Azure Portal immediately** — removing it from code alone does not revoke an exposed key
 
 ---
 
@@ -160,7 +180,7 @@ streamlit run azure_app.py
 - **RAG grounding is a prompt-engineering problem as much as a retrieval one** — explicit refusal instructions are what actually prevent hallucination, not the retrieval step alone
 - **Azure's managed AI services compose cleanly** — Azure AI Search and Azure OpenAI integrate through their own SDKs with minimal glue code
 - **CI/CD removes manual deployment entirely** — `git push` to `main` is the only action needed to ship a change to production
-- **Environment-based configuration is what makes a codebase shareable** — the same code runs locally and in Azure App Service purely by changing where the environment variables come from
+- **Not every configuration value needs the same protection** — endpoints identify resources and can live in code; keys authenticate and bill, and belong in environment variables only
 
 ---
 
